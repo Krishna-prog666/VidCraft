@@ -1,0 +1,64 @@
+const router = require('express').Router();
+const jwt = require('jsonwebtoken');
+const User = require('../models/User');
+const { auth } = require('../middleware/auth');
+
+const signToken = (user) =>
+  jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '7d' });
+
+// Register
+router.post('/register', async (req, res) => {
+  try {
+    const { name, email, password, phone } = req.body;
+    if (await User.findOne({ email }))
+      return res.status(400).json({ message: 'Email already registered' });
+    const user = await User.create({ name, email, password, phone });
+    const token = signToken(user);
+    res.status(201).json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role } });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// Login
+router.post('/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    const user = await User.findOne({ email });
+    if (!user || !(await user.comparePassword(password)))
+      return res.status(400).json({ message: 'Invalid credentials' });
+    const token = signToken(user);
+    res.json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role } });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// Get current user
+router.get('/me', auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select('-password');
+    res.json(user);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// Seed admin (run once)
+router.post('/seed-admin', async (req, res) => {
+  try {
+    const exists = await User.findOne({ role: 'admin' });
+    if (exists) return res.json({ message: 'Admin already exists' });
+    await User.create({
+      name: 'Admin',
+      email: process.env.ADMIN_EMAIL || 'admin@vidcraft.com',
+      password: process.env.ADMIN_PASSWORD || 'admin123',
+      role: 'admin'
+    });
+    res.json({ message: 'Admin created successfully' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+module.exports = router;
